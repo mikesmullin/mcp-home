@@ -1,0 +1,14 @@
+{
+  "name": "@mikesmullin/mcp-home",
+  "version": "0.1.0",
+  "private": false,
+  "type": "module",
+  "description": "MCP house tools: lights, Pixel Clock alarms/timers, media, apps, activities",
+  "bin": {
+    "mcp-home": "./server.coffee"
+  },
+  "dependencies": {
+    "bun-coffeescript": "^1.0.3",
+    "js-yaml": "^4.1.0"
+  }
+}
