@@ -1,7 +1,8 @@
 # mcp-home
 
 House MCP server (stdio, newline JSON-RPC): lights, Pixel Clock alarms and
-timers, media keys, launching desktop apps, and mari activity commands.
+timers, media keys, launching desktop apps, shutting down the PC, and mari
+activity commands.
 
 Moved out of `ada/back/mcp/home` so any MCP client can use the same tools.
 Ada still owns `listen` and `control_browser` itself.
@@ -24,6 +25,7 @@ Ada still owns `listen` and `control_browser` itself.
 | `media_control` | playerctl + system volume |
 | `current_time` | Local date/time |
 | `run_application` | Launch a desktop app via `~/launch.sh` |
+| `shutdown` | Run `~/shutdown.sh` (desk light off, then `sudo poweroff`) |
 | `run_activity_command` | Run a mari activity command (if YAML is present) |
 
 ## Env

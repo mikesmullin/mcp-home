@@ -176,6 +176,32 @@ tools =
       res = await runCmd "#{process.env.HOME}/launch.sh", [name]
       textResult if res.ok then "launched #{name}." else "failed to launch #{name} (#{res.out})"
 
+  # Same script mari's arch activity binds to hotkey S (~/.config/mari/activity/arch.yml).
+  shutdown:
+    description: 'shut down this home PC. Runs ~/shutdown.sh: turns off the desk light, then poweroffs the machine. ' +
+      'Only when Mike explicitly asked to shut down, power off, or turn off this computer — never as a side effect.'
+    inputSchema: { type: 'object', properties: {} }
+    handler: ->
+      script = "#{process.env.HOME}/shutdown.sh"
+      unless existsSync script
+        return textResult "shutdown script missing: #{script}", true
+      try
+        child = spawn script, []
+        # Do not wait for poweroff (or the desk-light agent ahead of it). Catch
+        # immediate spawn/exec failures, then return so Ada can speak.
+        early = await Promise.race [
+          child.promise
+          new Promise (r) -> setTimeout (-> r 'TIMEOUT'), 1500
+        ]
+        if early is 'TIMEOUT'
+          return textResult 'shutdown started: desk light off, then this PC will power off.'
+        if child.code is 0
+          return textResult 'shutdown script finished; the PC should be powering off.'
+        err = (child.stderr or child.stdout).trim().slice 0, 200
+        textResult "shutdown failed (exit #{child.code}): #{err}", true
+      catch e
+        textResult "failed to start shutdown: #{e.message}", true
+
 if cmdIds.length
   tools.run_activity_command =
     description: 'run one of my predefined activity commands (home automation, work laptop, sessions). ' +
