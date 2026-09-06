@@ -15,6 +15,37 @@ import { desk_light, pc_light_color } from '/workspace/agl-common/lib/tool/home.
 
 ACTIVITY_DIR = process.env.ADA_ACTIVITY_DIR or '/workspace/mari/activity'
 
+# Ambient mic transcript (perception-voice append-only log, one utterance per
+# line: `Sun, Sep 6 @ 4:09p | text`). Append-only, so 1-based line numbers
+# are stable cursors. Env override for tests.
+TRANSCRIPT_PATH = process.env.EAVESDROP_TRANSCRIPT or '/workspace/perception-voice/tmp/convos.md'
+MONTHS = { Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5, Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11 }
+
+# `Sun, Sep 6 @ 4:09p` -> ISO-8601 (local year guess; rolls back a year when
+# the result lands in the future). Falls back to the raw prefix when odd.
+parseLogTs = (prefix) ->
+  m = String(prefix or '').match /^(\w{3}), (\w{3}) (\d{1,2}) @ (\d{1,2}):(\d{2})([ap])$/
+  return prefix unless m and MONTHS[m[2]]?
+  h = parseInt(m[4], 10) % 12
+  h += 12 if m[6] is 'p'
+  now = new Date()
+  d = new Date now.getFullYear(), MONTHS[m[2]], parseInt(m[3], 10), h, parseInt(m[5], 10)
+  d.setFullYear d.getFullYear() - 1 if d.getTime() > now.getTime() + 86400000
+  d.toISOString()
+
+splitLogLine = (line) ->
+  idx = line.indexOf ' | '
+  if idx < 0
+    { prefix: '', levelDb: null, content: line }
+  else
+    prefix = line[0...idx]
+    rest = line[idx + 3..]
+    m = rest.match /^P95 (-?\d+)dB \| (.*)$/
+    if m
+      { prefix: prefix, levelDb: parseInt(m[1], 10), content: m[2] }
+    else
+      { prefix: prefix, levelDb: null, content: rest }
+
 mcpFn = (fn) ->
   description: fn.description or fn.name or 'tool'
   inputSchema:
@@ -156,6 +187,56 @@ tools =
         weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
         hour: 'numeric', minute: '2-digit', second: '2-digit', timeZoneName: 'short'
       textResult "#{local} (timezone #{tz}; ISO #{now.toISOString()})"
+
+  tail_eavesdrop_transcript:
+    description: 'eavesdrop on the room: read the ambient microphone transcript ' +
+      '(everything heard around here, addressed to Ada or not) from the newest end, like tail(1). ' +
+      'Omit `before` to get the last `limit` utterances. Pass `before` = `next_before` from the ' +
+      'previous call to get the previous page (strictly older). Messages in each page run ' +
+      'oldest-to-newest. Repeat until `has_older` is false. ' +
+      'Each message carries its timestamp plus a P95 loudness tag (`level_db`, windowed-RMS in dBFS, 0 = full scale) ' +
+      'recorded with it: higher (closer to zero) means nearer/louder, which helps tell who was speaking, ' +
+      'while the timestamp orders utterances in time. Older lines may have `level_db` null (recorded before tagging). ' +
+      'Use when Mike references something said earlier that was never spoken to you. ' +
+      'Read-only; it does not search. Message ids are 1-based line numbers, stable while the log is append-only.'
+    inputSchema:
+      type: 'object'
+      properties:
+        limit:
+          type: 'integer'
+          default: 100
+          minimum: 1
+          maximum: 200
+          description: 'page size, capped server-side at 200. First call returns the newest `limit` utterances.'
+        before:
+          type: 'string'
+          description: 'return `limit` utterances strictly older than this message id. Omit to tail.'
+    handler: ({ limit, before }) ->
+      unless existsSync TRANSCRIPT_PATH
+        return textResult "transcript unavailable (no log at #{TRANSCRIPT_PATH})", true
+      lim = parseInt limit, 10
+      lim = 100 unless lim >= 1
+      lim = Math.min 200, lim
+      raw = readFileSync TRANSCRIPT_PATH, 'utf8'
+      lines = raw.split('\n').filter (l) -> l.trim().length > 0
+      total = lines.length
+      end = total
+      if before?
+        cursor = parseInt String(before), 10
+        unless cursor >= 1
+          return textResult "invalid before cursor #{JSON.stringify before} (want a message id from a previous call)", true
+        end = Math.min cursor - 1, total
+      start = Math.max 0, end - lim
+      msgs = lines[start...end].map (line, i) ->
+        { prefix, content, levelDb } = splitLogLine line
+        id: String(start + i + 1), timestamp: parseLogTs(prefix), level_db: levelDb, role: 'user', speaker: 'ambient', content: content
+      textResult JSON.stringify({
+        messages: msgs
+        oldest_id: if msgs.length then msgs[0].id else null
+        newest_id: if msgs.length then msgs[msgs.length - 1].id else null
+        has_older: start > 0
+        next_before: if msgs.length then msgs[0].id else null
+      }, null, 2)
 
   run_application:
     description: 'launch a desktop application by its program name (as found on PATH), ' +
