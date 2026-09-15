@@ -22,7 +22,7 @@ Ada still owns `listen` and `control_browser` itself.
 | `timer__create` | Start a Pixel Clock timer, then open the timers page |
 | `timer__dismiss` | Dismiss a timer |
 | `timer__show` | Open Clock timers |
-| `media_control` | playerctl + system volume |
+| `media_control` | Zen/Firefox global player (MPRIS): status/now-playing, play/pause/skip, seek, player vs system volume. Independent of focused tab. |
 | `current_time` | Local date/time |
 | `run_application` | Launch a desktop app via `~/launch.sh` |
 | `shutdown` | Run `~/shutdown.sh` (desk light off, then `sudo poweroff`) |
