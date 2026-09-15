@@ -6,6 +6,7 @@ import { existsSync, readdirSync, readFileSync } from 'fs'
 import { runMcpStdioServer, textResult } from './shared/mcp-stdio.mjs'
 import { spawn } from './lib/spawn.coffee'
 import { clamp, forceInt } from './lib/validate.coffee'
+import { createMediaControl } from './lib/media-control.mjs'
 import {
   alarm__create, alarm__list, alarm__update, alarm__delete
   alarm__show, alarm__snooze
@@ -115,18 +116,7 @@ shellTool = (shellLine, timeoutMs = 10000) ->
   catch e
     "failed: #{shellLine} — #{e.message}"
 
-pickPlayer = ->
-  res = await runCmd 'playerctl', ['-l']
-  return null unless res.ok and res.out
-  players = res.out.split('\n').filter Boolean
-  paused = null
-  for p in players
-    st = await runCmd 'playerctl', ['-p', p, 'status']
-    continue unless st.ok
-    status = st.out.trim()
-    return p if status is 'Playing'
-    paused ?= p if status is 'Paused'
-  paused ? players[0] ? null
+media = createMediaControl runCmd
 
 appNames = Object.keys activities.apps
 cmdIds = Object.keys activities.commands
@@ -146,36 +136,36 @@ tools =
   timer__show: mcpFn timer__show
 
   media_control:
-    description: 'control the currently playing media (music or video in the browser or ' +
-      'any media player: pause, play, skip tracks) and/or set the system ' +
-      'output volume — the equivalent of the keyboard media keys.'
+    description: 'Read or control Zen/Firefox global media (Spotify web, YouTube, etc.) ' +
+      'via MPRIS — the same as the keyboard media keys. Independent of which tab is focused; ' +
+      'do not switch browser tabs to use this. Omit action (or action=status) to read ' +
+      'now-playing: title, artist, paused/playing, position, duration, player and system volume. ' +
+      'Transport actions are verified with a snapshot. Prefer playerVolume for the player, ' +
+      'volume for the whole machine. Not HTML5 zen_media_* (those are page <video> elements).'
     inputSchema:
       type: 'object'
       properties:
         action:
           type: 'string'
-          enum: ['play', 'pause', 'play-pause', 'next', 'previous', 'stop']
-          description: 'transport action for the active media player. omit when only changing volume.'
+          enum: ['status', 'play', 'pause', 'play-pause', 'next', 'previous', 'stop']
+          description: 'status (default) reads now-playing. Others are media-key transport.'
         volume:
           type: 'integer'
-          description: 'set system output volume as a percent, 0-100. omit when only controlling playback.'
-    handler: ({ action, volume }) ->
-      parts = []
-      if action
-        player = await pickPlayer()
-        if player
-          res = await runCmd 'playerctl', ['-p', player, action]
-          who = player.replace /\..*$/, ''
-          parts.push if res.ok then "media #{action} ok (#{who})." \
-                      else "media #{action} failed (#{res.out})."
-        else
-          parts.push 'no media player is running.'
-      if volume?
-        v = clamp forceInt(volume, 0), 0, 100
-        res = await runCmd 'wpctl', ['set-volume', '@DEFAULT_AUDIO_SINK@', "#{v}%"]
-        parts.push if res.ok then "system volume set to #{v} percent." \
-                    else "volume change failed (#{res.out})."
-      textResult parts.join(' ') or 'no media action requested (specify action and/or volume).'
+          description: 'system output volume 0-100 (all apps). Prefer playerVolume for Spotify/Zen.'
+        playerVolume:
+          type: 'integer'
+          description: 'this media player volume 0-100 (Firefox/Spotify), not system volume.'
+        positionSeconds:
+          type: 'number'
+          description: 'seek to an absolute time in seconds within the current track.'
+        positionFraction:
+          type: 'number'
+          description: 'seek to 0..1 of track duration (needs known duration).'
+        seekBySeconds:
+          type: 'number'
+          description: 'relative seek, seconds (negative to rewind).'
+    handler: (args) ->
+      textResult await media.handle args or {}
 
   current_time:
     description: 'get the current local date, time, and timezone'
